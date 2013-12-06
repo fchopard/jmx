@@ -3,6 +3,7 @@ package ch.minifig.monitoring.jmx;
 import javax.management.ObjectName;
 import javax.management.openmbean.CompositeData;
 import java.lang.management.ManagementFactory;
+import java.util.concurrent.TimeUnit;
 
 public class MemoryAllocation implements MemoryAllocationMBean {
     public static final ObjectName DEFAULT_NAME = Jmx.newObjectName("ch.minifig.monitoring.jmx:type=MemoryAllocation");
@@ -10,22 +11,67 @@ public class MemoryAllocation implements MemoryAllocationMBean {
     private static final ObjectName THREADING_MBEAN = Jmx.newObjectName("java.lang:type=Threading");
 
     private final Jmx jmx = new Jmx(ManagementFactory.getPlatformMBeanServer());
+    private long totalAllocatedBytes;
+    private long sampleTimeStamp;
+    private long lastTotalAllocatedBytes;
+    private long lastSampleTimeStamp;
 
     @Override
-    public long getTotalAllocatedBytes() {
-        if (!isSupported()) {
+    public synchronized long getTotalAllocatedBytes() {
+        if (getNewSampleIfSupported()) {
             return -1;
         }
 
-        long[] threadIds = getThreadIds();
+        return totalAllocatedBytes;
+    }
 
-        long totalAllocatedBytes = 0;
-        for (long threadId : threadIds) {
-            long threadAllocatedBytes = jmx.invoke(THREADING_MBEAN, "getThreadAllocatedBytes", new Object[]{threadId}, new String[]{"long"}, Long.class);
-            totalAllocatedBytes += threadAllocatedBytes;
+    @Override
+    public synchronized long getNewlyAllocatedBytes() {
+        if (getNewSampleIfSupported()) {
+            return -1;
         }
 
-        return totalAllocatedBytes;
+        return totalAllocatedBytes - lastTotalAllocatedBytes;
+    }
+
+    @Override
+    public synchronized double getAllocatedBytesPerSecond() {
+        if (getNewSampleIfSupported()) {
+            return -1.0;
+        }
+
+        double newlyAllocatedBytes = totalAllocatedBytes - lastTotalAllocatedBytes;
+        double timeSplit = sampleTimeStamp - lastSampleTimeStamp;
+        return newlyAllocatedBytes / timeSplit * TimeUnit.SECONDS.toMillis(1);
+    }
+
+    private boolean getNewSampleIfSupported() {
+        if (!isSupported()) {
+            return true;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - sampleTimeStamp < 1000) {
+            // no new sampling during the same second
+            return false;
+        }
+        newSample();
+        return false;
+    }
+
+    private void newSample() {
+        long[] threadIds = getThreadIds();
+
+        long updatedTotalAllocatedBytes = 0;
+        for (long threadId : threadIds) {
+            long threadAllocatedBytes = jmx.invoke(THREADING_MBEAN, "getThreadAllocatedBytes", new Object[]{threadId}, new String[]{"long"}, Long.class);
+            updatedTotalAllocatedBytes += threadAllocatedBytes;
+        }
+
+        lastTotalAllocatedBytes = totalAllocatedBytes;
+        lastSampleTimeStamp = sampleTimeStamp;
+        totalAllocatedBytes = updatedTotalAllocatedBytes;
+        sampleTimeStamp = System.currentTimeMillis();
     }
 
     @Override

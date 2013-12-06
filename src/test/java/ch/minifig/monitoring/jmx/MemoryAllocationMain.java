@@ -13,7 +13,7 @@ public class MemoryAllocationMain {
     public static void main(String[] args) throws NotCompliantMBeanException, InstanceAlreadyExistsException, MBeanRegistrationException, InterruptedException {
         ManagementFactory.getPlatformMBeanServer().registerMBean(new MemoryAllocation(), MemoryAllocation.DEFAULT_NAME);
 
-        int numberOfThreads = 4;
+        int numberOfThreads = 1;
         ExecutorService executorService = Executors.newFixedThreadPool(numberOfThreads);
         for (int i = 0; i < numberOfThreads; i++) {
             executorService.submit(new Runnable() {
